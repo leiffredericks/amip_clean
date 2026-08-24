@@ -34,6 +34,35 @@ The resulting `maria_processing_tasks.json` is the task list for the future
 one-member-at-a-time processing pipeline. It contains file paths only and does
 not transfer or open the NetCDF data.
 
+## Monthly MCA-style comparison maps
+
+`monthly_mca_comparison.py` creates the cleaned version of the comparison in
+`Dave_maps.ipynb` for March 2000--December 2014. It calculates monthly spatial
+`N = rsdt - rlut - rsut`, then makes a map of the covariance between detrended,
+standardised spatial `tas` and detrended global-mean `N`.
+
+The script works one named Maria member at a time. Regridded monthly `tas` and
+`N` exist only in a temporary directory and are deleted automatically. The
+default output directory is `data/monthly_mca/`, which Git ignores.
+
+It requires `cdo`, Python 3, `numpy`, and `xarray`; SVG map output additionally
+requires `matplotlib` and `cartopy`.
+
+Run a small remote-machine test first (substitute Maria's archive root):
+
+```bash
+python3 monthly_mca_comparison.py \
+  --maria-root /path/to/maria/data \
+  --models CNRM-CM6-1 \
+  --experiments amip-hist \
+  --plot
+```
+
+Then omit `--models` to process all complete catalog entries for
+`amip-piForcing`, `amip-hist`, and `historical`. `tas` uses bilinear remapping
+by default; fluxes and CERES use conservative remapping. Both choices are
+explicit command-line options (`--tas-remap`, `--flux-remap`).
+
 ## Moving between local and remote machines
 
 Push this repository to a private Git remote, then clone or pull it on the

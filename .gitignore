@@ -1,6 +1,9 @@
 # Large NetCDF inputs and locally generated data products stay out of Git.
 /data/
 
+# Default location for generated comparison maps and reports
+/monthly_mca/
+
 # Python build artifacts
 __pycache__/
 *.py[cod]
