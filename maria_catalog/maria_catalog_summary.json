@@ -1,0 +1,20 @@
+{
+  "input": {
+    "lines": 17836,
+    "netcdf_paths": 12482,
+    "parsed_cmip_paths": 12482,
+    "relevant_paths": 5858
+  },
+  "tuple_count": 847,
+  "complete_task_count": 297,
+  "status_counts": {
+    "ambiguous": 490,
+    "complete": 297,
+    "incomplete": 60
+  },
+  "outputs": {
+    "catalog": "/Users/leiff/projects/amip_clean/maria_catalog/maria_catalog.csv",
+    "processing_tasks": "/Users/leiff/projects/amip_clean/maria_catalog/maria_processing_tasks.json",
+    "issues": "/Users/leiff/projects/amip_clean/maria_catalog/maria_missing_or_ambiguous.csv"
+  }
+}

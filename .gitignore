@@ -1,0 +1,9 @@
+# Large NetCDF inputs and locally generated data products stay out of Git.
+/data/
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+
+# Operating-system metadata
+.DS_Store
