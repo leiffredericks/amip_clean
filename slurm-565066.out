@@ -1,0 +1,25 @@
+[I 2026-08-25 11:16:34.599 ServerApp] jupyterlab | extension was successfully linked.
+[I 2026-08-25 11:16:35.153 ServerApp] nbclassic | extension was successfully linked.
+[I 2026-08-25 11:16:35.207 LabApp] JupyterLab extension loaded from /usr/local/anaconda3/lib/python3.7/site-packages/jupyterlab
+[I 2026-08-25 11:16:35.207 LabApp] JupyterLab application directory is /usr/local/anaconda3/share/jupyter/lab
+[I 2026-08-25 11:16:35.212 ServerApp] jupyterlab | extension was successfully loaded.
+[I 2026-08-25 11:16:35.222 ServerApp] nbclassic | extension was successfully loaded.
+[I 2026-08-25 11:16:35.223 ServerApp] Serving notebooks from local directory: /scratch/leiff/MCA/amip_clean
+[I 2026-08-25 11:16:35.223 ServerApp] Jupyter Server 1.4.1 is running at:
+[I 2026-08-25 11:16:35.223 ServerApp] http://mal-node2:9099/lab?token=658c3fab95274d41aa28ac4f5777c87ea6a9240ee73c042e
+[I 2026-08-25 11:16:35.223 ServerApp]  or http://127.0.0.1:9099/lab?token=658c3fab95274d41aa28ac4f5777c87ea6a9240ee73c042e
+[I 2026-08-25 11:16:35.224 ServerApp] Use Control-C to stop this server and shut down all kernels (twice to skip confirmation).
+[C 2026-08-25 11:16:35.230 ServerApp] 
+    
+    To access the server, open this file in a browser:
+        file:///scratch/leiff/.local/share/jupyter/runtime/jpserver-55217-open.html
+    Or copy and paste one of these URLs:
+        http://mal-node2:9099/lab?token=658c3fab95274d41aa28ac4f5777c87ea6a9240ee73c042e
+     or http://127.0.0.1:9099/lab?token=658c3fab95274d41aa28ac4f5777c87ea6a9240ee73c042e
+[W 2026-08-25 11:20:43.247 ServerApp] 404 GET /hub/api (10.11.255.128) 27.70ms referer=None
+[I 2026-08-25 11:20:43.255 NotebookApp] 302 GET /tree? (10.11.255.128) 1.02ms
+[W 2026-08-25 11:20:44.308 ServerApp] 404 GET /hub/api (10.11.255.128) 2.10ms referer=None
+[I 2026-08-25 11:20:44.315 NotebookApp] 302 GET /tree? (10.11.255.128) 1.13ms
+[W 2026-08-25 11:20:44.363 ServerApp] 404 GET /hub/api (10.11.255.128) 1.70ms referer=None
+[I 2026-08-25 11:20:44.368 NotebookApp] 302 GET /tree? (10.11.255.128) 0.91ms
+slurmstepd: error: *** JOB 565066 ON mal-node2 CANCELLED AT 2026-08-25T11:20:54 ***
