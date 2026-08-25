@@ -1,5 +1,6 @@
 # Large NetCDF inputs and locally generated data products stay out of Git.
 /data/
+*remote_file_manifest*
 
 # Default location for generated comparison maps and reports
 /monthly_mca/
