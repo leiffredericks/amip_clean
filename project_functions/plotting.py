@@ -695,3 +695,168 @@ def plot_3_observation_maps(
 
     return fig, axes
 # %%
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+from cartopy.util import add_cyclic_point
+from pathlib import Path
+
+
+def plot_3x3_relationship_maps(maps, lat, lon, row_titles, column_titles, *,
+                              figure_title="Observed and modeled relationships", colorbar_labels=None,
+                              cmaps="RdBu_r", vlims=None, robust_percentile=98, number_of_levels=21,
+                              central_longitude=0, robust_masks=None, overlay_style="stipple",
+                              overlay_for="significant", stipple_stride=3, stipple_size=2.0,
+                              stipple_color="black", stipple_alpha=0.65, stipple_marker=".",
+                              hatch_pattern="....", hatch_color="black", hatch_linewidth=0.5,
+                              figsize=(18, 11.5), savepath=None, dpi=200):
+    """Plot a (row, column, lat, lon) = (3, 3, n_lat, n_lon) map grid.
+
+    Rows are diagnostics, columns are datasets/experiments. cmaps, vlims, and
+    colorbar_labels apply PER ROW, so the three columns share a comparable scale.
+    The function only plots supplied maps and masks; it recalculates no statistics.
+
+    robust_masks: None; a common 2D NumPy mask; a (3, 3, lat, lon) array; or a
+    nested 3×3 list whose entries are 2D masks or None. A None panel has NO overlay,
+    even with overlay_for="not_significant". NaN/masked cells are never overlaid.
+    Finite nonzero means True/robust; zero means False/not robust. The legacy
+    name "significant" selects True cells, not a new significance calculation.
+
+    Returns fig, axes, where axes.shape == (3, 3).
+    """
+    maps = np.ma.asarray(maps, dtype=float).filled(np.nan)
+    lat, lon = np.asarray(lat), np.asarray(lon)
+    if lat.ndim != 1 or lon.ndim != 1 or min(len(lat), len(lon)) < 2:
+        raise ValueError("lat and lon must be 1D coordinates with at least two points each.")
+    if not np.isfinite(lat).all() or not np.isfinite(lon).all():
+        raise ValueError("lat and lon must be finite.")
+    if maps.shape != (3, 3, len(lat), len(lon)):
+        raise ValueError(f"maps must have shape {(3, 3, len(lat), len(lon))}; got {maps.shape}.")
+    if len(row_titles) != 3 or len(column_titles) != 3:
+        raise ValueError("Supply three row_titles and three column_titles.")
+
+    # Expand scalar plotting choices to three ROW choices. Automatic color limits
+    # use finite values from all three columns in that row, not separate panels.
+    colorbar_labels = ["", "", ""] if colorbar_labels is None else list(colorbar_labels)
+    cmaps = [cmaps] * 3 if isinstance(cmaps, (str, mpl.colors.Colormap)) else list(cmaps)
+    vlims = [None] * 3 if vlims is None else ([vlims] * 3 if np.isscalar(vlims) else list(vlims))
+    if len(colorbar_labels) != 3 or len(cmaps) != 3 or len(vlims) != 3:
+        raise ValueError("colorbar_labels, cmaps, and vlims must each describe three rows.")
+    if not 0 < robust_percentile <= 100:
+        raise ValueError("robust_percentile must be in (0, 100].")
+    if not isinstance(number_of_levels, (int, np.integer)) or number_of_levels < 2:
+        raise ValueError("number_of_levels must be an integer of at least 2.")
+    row_levels = []
+    for row in range(3):
+        limit = vlims[row]
+        if limit is None:
+            finite = np.abs(maps[row][np.isfinite(maps[row])])
+            if not finite.size:
+                raise ValueError(f"Row {row + 1} has no finite values; supply a manual vlim to show it blank.")
+            limit = float(np.percentile(finite, robust_percentile))
+            limit = float(finite.max()) if limit == 0 else limit
+            limit = 1.0 if limit == 0 else limit
+        if not np.isfinite(limit) or limit <= 0:
+            raise ValueError("Every color limit must be positive and finite.")
+        row_levels.append(np.linspace(-limit, limit, number_of_levels))
+
+    # Prepare explicit panel masks. In particular, None for observations means
+    # "no robustness assessment supplied", not a False mask to invert/stipple.
+    if overlay_style not in {"stipple", "hatch"}:
+        raise ValueError("overlay_style must be 'stipple' or 'hatch'.")
+    if overlay_for not in {"significant", "not_significant"}:
+        raise ValueError("overlay_for must be 'significant' or 'not_significant'.")
+    if not isinstance(stipple_stride, (int, np.integer)) or stipple_stride < 1:
+        raise ValueError("stipple_stride must be a positive integer.")
+    if robust_masks is None:
+        masks = [[None] * 3 for _ in range(3)]
+    elif isinstance(robust_masks, np.ndarray) and robust_masks.ndim == 2:
+        masks = [[robust_masks] * 3 for _ in range(3)]
+    else:
+        if len(robust_masks) != 3 or any(len(row) != 3 for row in robust_masks):
+            raise ValueError("robust_masks must be a 3×3 list/array of panel masks, or a common 2D NumPy mask.")
+        masks = [list(row) for row in robust_masks]
+    for row in range(3):
+        for column in range(3):
+            if masks[row][column] is not None:
+                mask = np.ma.asarray(masks[row][column], dtype=float).filled(np.nan)
+                if mask.shape != maps.shape[-2:]:
+                    raise ValueError(f"Mask [{row}][{column}] must have shape {maps.shape[-2:]}.")
+                masks[row][column] = mask
+    longitude_is_cyclic = np.isclose(abs(lon[-1] - lon[0]), 360)
+
+    # Keep your Robinson/contourf/coastline style, with a horizontal colorbar shared
+    # across each row. Panel labels run a–i in ordinary row-major order.
+    fig, axes = plt.subplots(3, 3, figsize=figsize,
+                             subplot_kw={"projection": ccrs.Robinson(central_longitude=central_longitude)})
+    # Reserve explicit title/row-colorbar space; fixed-aspect geographic axes can
+    # otherwise crowd titles when a layout engine also resizes shared colorbars.
+    fig.subplots_adjust(left=0.065, right=0.99, top=0.90, bottom=0.045, wspace=0.035, hspace=0.32)
+    for row in range(3):
+        for column in range(3):
+            ax, panel_map = axes[row, column], maps[row, column]
+            if longitude_is_cyclic:
+                plot_map, plot_lon = panel_map, lon
+            else:
+                plot_map, plot_lon = add_cyclic_point(panel_map, coord=lon, axis=-1)
+            mappable = ax.contourf(plot_lon, lat, np.ma.masked_invalid(plot_map), levels=row_levels[row],
+                                   cmap=cmaps[row], extend="both", transform=ccrs.PlateCarree())
+
+            # Overlay the supplied robustness classification only where this map
+            # also exists. Unknown/NaN mask values stay unmarked in BOTH modes.
+            panel_mask = masks[row][column]
+            if panel_mask is not None:
+                known = np.isfinite(panel_mask) & np.isfinite(panel_map)
+                selected = panel_mask != 0 if overlay_for == "significant" else panel_mask == 0
+                display_mask = known & selected
+                if display_mask.any() and overlay_style == "stipple":
+                    # Scatter original cell centers, not the added cyclic seam.
+                    # If the input already duplicates longitude, omit its last point.
+                    end = -1 if longitude_is_cyclic else None
+                    sampled = display_mask[:, :end][::stipple_stride, ::stipple_stride]
+                    iy, ix = np.where(sampled)
+                    ax.scatter(lon[:end][::stipple_stride][ix], lat[::stipple_stride][iy], s=stipple_size,
+                               c=stipple_color, alpha=stipple_alpha, marker=stipple_marker, linewidths=0,
+                               transform=ccrs.PlateCarree(), zorder=4)
+                elif display_mask.any() and overlay_style == "hatch":
+                    # Valid unselected locations are 0, so contour boundaries can
+                    # interpolate; only unknown/missing locations are NaN.
+                    hatch_map = np.where(known, display_mask.astype(float), np.nan)
+                    if longitude_is_cyclic:
+                        plot_hatch, hatch_lon = hatch_map, lon
+                    else:
+                        plot_hatch, hatch_lon = add_cyclic_point(hatch_map, coord=lon, axis=-1)
+                    with mpl.rc_context({"hatch.color": hatch_color, "hatch.linewidth": hatch_linewidth}):
+                        hatch_artist = ax.contourf(hatch_lon, lat, np.ma.masked_invalid(plot_hatch),
+                                                   levels=[0.5, 1.5], colors="none", hatches=[hatch_pattern],
+                                                   transform=ccrs.PlateCarree(), zorder=4)
+                        # Older Matplotlib exposes collections; newer versions put
+                        # these properties on the contour set itself. Keep both working.
+                        artists = hatch_artist.collections if hasattr(hatch_artist, "collections") else [hatch_artist]
+                        for artist in artists:
+                            artist.set_edgecolor(hatch_color)
+                            artist.set_facecolor("none")
+                            artist.set_linewidth(0)  # Hatching only, without polygon boundary outlines.
+                            if hasattr(artist, "set_hatch_linewidth"):
+                                artist.set_hatch_linewidth(hatch_linewidth)
+
+            ax.set_global()
+            ax.coastlines(resolution="110m", linewidth=0.55, color="0.2", zorder=5)
+            ax.gridlines(linewidth=0.3, color="0.35", alpha=0.4, linestyle=":")
+            ax.set_title(f"({chr(ord('a') + row * 3 + column)})", loc="left", fontsize=11, pad=5)
+            if row == 0:
+                ax.set_title(column_titles[column], fontsize=14, pad=8)
+        axes[row, 0].text(-0.065, 0.5, row_titles[row], transform=axes[row, 0].transAxes,
+                          rotation=90, ha="center", va="center", fontsize=13)
+        colorbar = fig.colorbar(mappable, ax=list(axes[row]), orientation="horizontal", pad=0.035,
+                                fraction=0.055, aspect=60, shrink=0.8, extend="both")
+        colorbar.set_label(colorbar_labels[row], fontsize=12)
+        colorbar.ax.tick_params(labelsize=9)
+    fig.suptitle(figure_title, fontsize=16)
+    if savepath is not None:
+        savepath = Path(savepath)
+        savepath.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(savepath, dpi=dpi, bbox_inches="tight")
+        print(f"Saved: {savepath}")
+    return fig, axes
