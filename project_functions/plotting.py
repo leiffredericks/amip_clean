@@ -860,3 +860,100 @@ def plot_3x3_relationship_maps(maps, lat, lon, row_titles, column_titles, *,
         fig.savefig(savepath, dpi=dpi, bbox_inches="tight")
         print(f"Saved: {savepath}")
     return fig, axes
+
+
+# %%
+# %% 1. Reusable time-series plot using the loaded overlap_* dictionaries
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_overlap_timeseries(experiment, quantity="R_detrended", *, models=None, colors=None,
+                            bands=((0, 100),), band_alphas=(0.10,), model_lw=1.3, MMM_lw=3.2,
+                            title=None, ylabel=None, figsize=(13, 5), ax=None):
+    """Colored mean-member series, pointwise ensemble-spread bands, and a black MMM.
+
+    Uses overlap_member_values, overlap_model_means, overlap_MMM,
+    overlap_model_names, and overlap_coordinates already loaded in the notebook.
+    quantity: T_detrended, R_detrended, T_trend_in, or R_trend_in.
+    bands: percentile pairs, widest first; band_alphas: corresponding opacities.
+    models=None plots the whole experiment; a subset gets its own equal-model MMM.
+    colors can be a {model: matplotlib_color} dictionary. Returns fig, ax.
+    """
+    # Resolve the model axis by NAME, not by assuming the groups share array order.
+    # The saved model means are means of members' SERIES, shaped (model, time).
+    names = list(overlap_model_names[experiment])
+    selected = names if models is None else list(models)
+    if not selected or len(selected) != len(set(selected)) or any(m not in names for m in selected):
+        raise ValueError("models must be a nonempty, unique subset of this experiment's model names.")
+    time = np.asarray(overlap_coordinates["time"])
+    all_means = np.asarray(overlap_model_means[experiment][quantity], dtype=float)
+    if time.ndim != 1 or all_means.shape != (len(names), len(time)):
+        raise ValueError("Choose a time-series quantity: expected model means with shape (model, time).")
+    means = all_means[[names.index(model) for model in selected]]
+
+    # Percentile bands describe member spread at EACH month. They are not confidence
+    # intervals, and their boundaries need not follow a single member through time.
+    # With only a few members, intermediate percentiles are interpolated summaries.
+    bands, band_alphas = list(bands), list(band_alphas)
+    if len(bands) != len(band_alphas):
+        raise ValueError("Supply one opacity in band_alphas for each percentile pair in bands.")
+    for (low, high), alpha in zip(bands, band_alphas):
+        if not (0 <= low < high <= 100 and 0 <= alpha <= 1):
+            raise ValueError("Percentiles must satisfy 0 <= low < high <= 100, and opacity must be 0–1.")
+
+    # Create the color lookup from ALL archived model names, so the same model keeps
+    # its color across historical, matched historical, AMIP, and plotted subsets.
+    # Supply your own colors dictionary if you already have preferred model colors.
+    if colors is None:
+        all_names = list(dict.fromkeys(m for group in overlap_model_names.values() for m in group))
+        palette = plt.get_cmap("tab20" if len(all_names) <= 20 else "turbo")
+        colors = dict(zip(all_names, palette(np.linspace(0., 1., len(all_names)))))
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    else:
+        fig = ax.figure
+
+    # Draw the widest band first, then narrower/darker bands, then each model mean.
+    # At least TWO finite members are needed for shading at a month. In particular,
+    # a single-member model has a line but no apparent zero-width uncertainty band.
+    for i, model in enumerate(selected):
+        members = np.asarray(overlap_member_values[experiment][quantity][model], dtype=float)
+        if members.ndim != 2 or members.shape[1] != len(time) or members.shape[0] == 0:
+            raise ValueError(f"{model}: expected member series shaped (member, time).")
+        members = np.where(np.isfinite(members), members, np.nan)
+        shade = np.isfinite(members).sum(axis=0) >= 2
+        for (low, high), alpha in zip(bands, band_alphas):
+            lower, upper = np.full(len(time), np.nan), np.full(len(time), np.nan)
+            if shade.any():
+                lower[shade], upper[shade] = np.nanpercentile(members[:, shade], [low, high], axis=0)
+            ax.fill_between(time, lower, upper, where=shade, color=colors[model],
+                            alpha=alpha, linewidth=0, zorder=1)
+        ax.plot(time, means[i], color=colors[model], lw=model_lw, label=model, zorder=3)
+
+    # Use the saved equal-model MMM for the full experiment. If explicitly selecting
+    # models, average just their saved model means; do NOT pool ensemble members.
+    # This line is a mean time series, not a summary of members' temporal SDs.
+    if models is None:
+        MMM = np.asarray(overlap_MMM[experiment][quantity], dtype=float)
+    else:
+        finite = np.isfinite(means)
+        count = finite.sum(axis=0)
+        total = np.where(finite, means, 0.).sum(axis=0)
+        MMM = np.divide(total, count, out=np.full(len(time), np.nan), where=count > 0)
+    if MMM.shape != (len(time),):
+        raise ValueError("The MMM must have shape (time,).")
+    ax.plot(time, MMM, color="black", lw=MMM_lw, label="MMM (equal model weight)", zorder=5)
+
+    # Put labels/legend outside the data where possible. No smoothing, detrending,
+    # rescaling, or anomaly calculation is performed by this plotting function.
+    ax.axhline(0., color="0.6", lw=0.7, ls=":", zorder=0)
+    ax.set(xlabel="Year", ylabel=quantity if ylabel is None else ylabel,
+           title=f"{experiment}: {quantity}" if title is None else title)
+    ax.grid(alpha=0.15)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.), frameon=False,
+              fontsize=8, ncol=1 if len(selected) <= 12 else 2)
+    return fig, ax
+
+
