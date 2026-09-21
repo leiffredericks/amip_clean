@@ -7,7 +7,7 @@ import cartopy.crs as ccrs
 from cartopy.util import add_cyclic_point
 from pathlib import Path
 
-# %% Plot any number of model maps in four columns
+#  Plot any number of model maps in four columns
 import numpy as np
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
@@ -694,7 +694,7 @@ def plot_3_observation_maps(
         print(f"Saved: {savepath}")
 
     return fig, axes
-# %%
+# 
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -862,7 +862,139 @@ def plot_3x3_relationship_maps(maps, lat, lon, row_titles, column_titles, *,
     return fig, axes
 
 
-# %%
+# 
+# 3. Plotting function: the relationship-grid style, now two positive-valued rows
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+from cartopy.util import add_cyclic_point
+
+
+def plot_2x3_variability_maps(maps, lat, lon, *, row_titles=("Local temperature", "Local radiation"),
+                            column_titles=("Observations", "Historical (matched)", "AMIP-hist"),
+                            figure_title="Local variability: square root of mean temporal variance",
+                            colorbar_labels=(r"Temperature SD [K]", r"Radiation SD [W m$^{-2}$]"),
+                            cmaps=("YlOrRd", "YlGnBu"), vmaxs=None, robust_percentile=98,
+                            number_of_levels=21, plot_method="contourf", central_longitude=210,
+                            robust_masks=None, stipple_stride=2, stipple_size=3., stipple_alpha=.65,
+                            stipple_color="black", figsize=(18, 8), savepath=None, dpi=200):
+    """Two rows × three columns of nonnegative SD-display maps; no statistics fitted.
+
+    One shared LINEAR 0..vmax color scale per row. vmaxs can be [T_max, R_max],
+    one shared scalar, or None for automatic row limits across all three columns.
+    The percentile controls display saturation only, never the variance averaging.
+    plot_method is 'contourf' or 'pcolormesh'. Coordinates are 1D regular global grids.
+
+    Optional robust_masks is a nested 2×3 list of 2D masks/None. Only finite nonzero
+    mask cells with finite plotted values are stippled. No significance calculation
+    is made. Do NOT reuse covariance-map robustness masks for these variance maps.
+    Returns fig, axes, where axes.shape == (2, 3).
+    """
+    maps = np.ma.asarray(maps, dtype=float).filled(np.nan)
+    lat, lon = np.asarray(lat), np.asarray(lon)
+    if lat.ndim != 1 or lon.ndim != 1 or min(len(lat), len(lon)) < 2:
+        raise ValueError("lat and lon must be 1D with at least two points each.")
+    if not np.isfinite(lat).all() or not np.isfinite(lon).all():
+        raise ValueError("Coordinates must be finite.")
+    if maps.shape != (2, 3, len(lat), len(lon)) or np.any(maps[np.isfinite(maps)] < 0):
+        raise ValueError("maps must be nonnegative with shape (2, 3, lat, lon).")
+    if len(row_titles) != 2 or len(column_titles) != 3 or len(colorbar_labels) != 2:
+        raise ValueError("Supply two row titles/colorbar labels and three column titles.")
+    if plot_method not in {"contourf", "pcolormesh"}:
+        raise ValueError("plot_method must be 'contourf' or 'pcolormesh'.")
+    if not 0 < robust_percentile <= 100:
+        raise ValueError("robust_percentile must be in (0, 100].")
+    if not isinstance(number_of_levels, (int, np.integer)) or number_of_levels < 2:
+        raise ValueError("number_of_levels must be an integer of at least two.")
+    if not isinstance(stipple_stride, (int, np.integer)) or stipple_stride < 1:
+        raise ValueError("stipple_stride must be a positive integer.")
+
+    # Sequential colormaps suit variance/SD: zero is the lower bound, not the
+    # center of a diverging scale. One row's three panels always share a norm.
+    cmaps = [cmaps]*2 if isinstance(cmaps, (str, mpl.colors.Colormap)) else list(cmaps)
+    vmaxs = [None]*2 if vmaxs is None else ([vmaxs]*2 if np.isscalar(vmaxs) else list(vmaxs))
+    if len(cmaps) != 2 or len(vmaxs) != 2:
+        raise ValueError("Supply one colormap and maximum per row, or shared scalar choices.")
+    row_limits = []
+    for row in range(2):
+        maximum = vmaxs[row]
+        if maximum is None:
+            finite = maps[row][np.isfinite(maps[row])]
+            if not finite.size:
+                raise ValueError(f"Row {row+1} has no finite data; supply vmaxs to show a blank row.")
+            maximum = float(np.percentile(finite, robust_percentile))
+            maximum = float(finite.max()) if maximum == 0 else maximum
+            maximum = 1. if maximum == 0 else maximum
+        if not np.isfinite(maximum) or maximum <= 0:
+            raise ValueError("Every vmax must be positive and finite.")
+        row_limits.append(maximum)
+
+    # Masks are deliberately opt-in. Sign agreement about positive variance is
+    # not the robustness question used for your signed covariance diagnostics.
+    masks = [[None]*3 for _ in range(2)] if robust_masks is None else robust_masks
+    if len(masks) != 2 or any(len(row) != 3 for row in masks):
+        raise ValueError("robust_masks must be a 2×3 list/array of panel masks or None.")
+    masks = [list(row) for row in masks]
+    for row in range(2):
+        for column in range(3):
+            if masks[row][column] is not None:
+                masks[row][column] = np.ma.asarray(masks[row][column], dtype=float).filled(np.nan)
+                if masks[row][column].shape != maps.shape[-2:]:
+                    raise ValueError("Each supplied stipple mask must match the spatial grid.")
+
+    # Preserve the Robinson projection, coastlines, subtle gridlines, panel letters,
+    # column headings, and horizontal row colorbars of the relationship-grid plots.
+    cyclic = np.isclose(abs(lon[-1] - lon[0]), 360.)
+    fig, axes = plt.subplots(2, 3, figsize=figsize,
+                             subplot_kw={"projection": ccrs.Robinson(central_longitude=central_longitude)})
+    fig.subplots_adjust(left=.065, right=.99, top=.87, bottom=.13, wspace=.035, hspace=.34)
+    for row in range(2):
+        norm = mpl.colors.Normalize(vmin=0., vmax=row_limits[row])
+        levels = np.linspace(0., row_limits[row], number_of_levels)
+        for column in range(3):
+            ax, panel = axes[row, column], maps[row, column]
+            plot_map, plot_lon = (panel, lon) if cyclic else add_cyclic_point(panel, coord=lon, axis=-1)
+            if plot_method == "contourf":
+                mappable = ax.contourf(plot_lon, lat, np.ma.masked_invalid(plot_map), levels=levels,
+                                       norm=norm, cmap=cmaps[row], extend="max", transform=ccrs.PlateCarree())
+            else:
+                mappable = ax.pcolormesh(plot_lon, lat, np.ma.masked_invalid(plot_map), shading="auto",
+                                         norm=norm, cmap=cmaps[row], transform=ccrs.PlateCarree(), rasterized=True)
+            panel_mask = masks[row][column]
+            if panel_mask is not None:
+                selected = np.isfinite(panel_mask) & (panel_mask != 0) & np.isfinite(panel)
+                end = -1 if cyclic else None
+                iy, ix = np.where(selected[:, :end][::stipple_stride, ::stipple_stride])
+                if len(iy):
+                    ax.scatter(lon[:end][::stipple_stride][ix], lat[::stipple_stride][iy], s=stipple_size,
+                               color=stipple_color, alpha=stipple_alpha, marker=".", linewidths=0,
+                               transform=ccrs.PlateCarree(), zorder=4)
+            ax.set_global()
+            ax.coastlines(resolution="110m", linewidth=.55, color="0.2", zorder=5)
+            ax.gridlines(linewidth=.3, color="0.35", alpha=.4, linestyle=":")
+            ax.set_title(f"({chr(ord('a') + row*3 + column)})", loc="left", fontsize=11, pad=5)
+            if row == 0:
+                ax.set_title(column_titles[column], fontsize=14, pad=8)
+        axes[row, 0].text(-.065, .5, row_titles[row], transform=axes[row, 0].transAxes,
+                          rotation=90, ha="center", va="center", fontsize=13)
+        colorbar = fig.colorbar(mappable, ax=list(axes[row]), orientation="horizontal", pad=.04,
+                                fraction=.06, aspect=60, shrink=.8, extend="max")
+        colorbar.set_label(colorbar_labels[row], fontsize=11)
+        ticks = mpl.ticker.MaxNLocator(nbins=6).tick_values(0., row_limits[row])
+        colorbar.set_ticks(ticks[(ticks >= 0) & (ticks <= row_limits[row])])
+        colorbar.ax.tick_params(labelsize=9)
+    fig.suptitle(figure_title, fontsize=16, y=.975)
+    fig.text(.065, .025, "Models: variance averaged within each model, then equally across models; square root shown. "
+             "Observations: temporal SD.", fontsize=9, color=".3")
+    if savepath is not None:
+        savepath = Path(savepath)
+        savepath.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(savepath, dpi=dpi, bbox_inches="tight")
+        print(f"Saved: {savepath}")
+    return fig, axes
+
+
+
 # %% 1. Reusable time-series plot using the loaded overlap_* dictionaries
 import numpy as np
 import matplotlib.pyplot as plt
