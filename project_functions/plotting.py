@@ -1,3 +1,16 @@
+
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+
+def plot_map(lat, lon, data):
+    fig, ax = plt.subplots(subplot_kw={"projection": ccrs.PlateCarree(central_longitude=210)})
+    im = ax.pcolormesh(lon, lat, data, shading="auto", transform=ccrs.PlateCarree())
+    ax.coastlines()
+    fig.colorbar(im, ax=ax)
+    plt.show()
+    return fig, ax
+
+
 # plot_3_observation_maps with optional stippling or hatching
 
 import numpy as np
